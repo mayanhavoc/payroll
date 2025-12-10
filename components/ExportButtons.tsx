@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { PullRequest, ExportData, ContributorSummary } from '@/types';
+import { PullRequest, ExportData } from '@/types';
 import { calculateSummary } from '@/lib/calculations';
 import { generateCSV, generateMarkdown, generateJSON, downloadFile, copyToClipboard } from '@/lib/export';
 import { Download, FileText, FileJson, Copy, CheckCircle } from 'lucide-react';

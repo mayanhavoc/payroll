@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { validateRepository, validateDateRange } from '@/lib/calculations';
 
 interface Config {
@@ -16,28 +16,37 @@ interface ConfigFormOAuthProps {
   loading?: boolean;
 }
 
+const defaultConfig: Config = {
+  repository: '',
+  startDate: '',
+  endDate: '',
+  ratePerPoint: 25,
+  currencySymbol: '₳',
+};
+
+function loadOAuthConfig(): Config {
+  if (typeof window === 'undefined') {
+    return { ...defaultConfig };
+  }
+
+  const saved = localStorage.getItem('payroll_config_oauth');
+  if (!saved) {
+    return { ...defaultConfig };
+  }
+
+  try {
+    const parsed = JSON.parse(saved) as Config;
+    return parsed;
+  } catch (error) {
+    console.error('Failed to load config:', error);
+    return { ...defaultConfig };
+  }
+}
+
 export default function ConfigFormOAuth({ onSubmit, loading = false }: ConfigFormOAuthProps) {
-  const [config, setConfig] = useState<Config>({
-    repository: '',
-    startDate: '',
-    endDate: '',
-    ratePerPoint: 25,
-    currencySymbol: '₳',
-  });
+  const [config, setConfig] = useState<Config>(() => loadOAuthConfig());
 
   const [errors, setErrors] = useState<Partial<Record<keyof Config, string>>>({});
-
-  // Load config from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem('payroll_config_oauth');
-    if (saved) {
-      try {
-        setConfig(JSON.parse(saved));
-      } catch (error) {
-        console.error('Failed to load config:', error);
-      }
-    }
-  }, []);
 
   const validate = (): boolean => {
     const newErrors: Partial<Record<keyof Config, string>> = {};
@@ -81,13 +90,7 @@ export default function ConfigFormOAuth({ onSubmit, loading = false }: ConfigFor
   };
 
   const handleReset = () => {
-    setConfig({
-      repository: '',
-      startDate: '',
-      endDate: '',
-      ratePerPoint: 25,
-      currencySymbol: '₳',
-    });
+    setConfig({ ...defaultConfig });
     setErrors({});
   };
 

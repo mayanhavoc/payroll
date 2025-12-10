@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { PullRequest } from '@/types';
 import { calculateSummary } from '@/lib/calculations';
 import ConfigFormOAuth from '@/components/ConfigFormOAuth';
@@ -81,8 +82,9 @@ export default function Home() {
 
       const data = await response.json();
       setPRs(data.prs);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch pull requests');
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      setError(error.message || 'Failed to fetch pull requests');
       console.error('Error fetching PRs:', err);
     } finally {
       setLoading(false);
@@ -178,10 +180,12 @@ export default function Home() {
               {/* User Info */}
               <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
                 {session.user?.image ? (
-                  <img
+                  <Image
                     src={session.user.image}
                     alt={session.user.name || 'User'}
-                    className="w-6 h-6 rounded-full"
+                    width={24}
+                    height={24}
+                    className="w-6 h-6 rounded-full object-cover"
                   />
                 ) : (
                   <User size={20} className="text-gray-600 dark:text-gray-400" />

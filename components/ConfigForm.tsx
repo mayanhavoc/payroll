@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Config } from '@/types';
 import { validateRepository, validateToken, validateDateRange } from '@/lib/calculations';
 import { saveConfig, loadConfig } from '@/lib/storage';
@@ -10,25 +10,22 @@ interface ConfigFormProps {
   loading?: boolean;
 }
 
+const defaultConfig: Config = {
+  repository: '',
+  token: '',
+  startDate: '',
+  endDate: '',
+  ratePerPoint: 25,
+  currencySymbol: '₳',
+};
+
 export default function ConfigForm({ onSubmit, loading = false }: ConfigFormProps) {
-  const [config, setConfig] = useState<Config>({
-    repository: '',
-    token: '',
-    startDate: '',
-    endDate: '',
-    ratePerPoint: 25,
-    currencySymbol: '₳',
+  const [config, setConfig] = useState<Config>(() => {
+    const saved = loadConfig();
+    return saved ?? { ...defaultConfig };
   });
 
   const [errors, setErrors] = useState<Partial<Record<keyof Config, string>>>({});
-
-  // Load config from localStorage on mount
-  useEffect(() => {
-    const saved = loadConfig();
-    if (saved) {
-      setConfig(saved);
-    }
-  }, []);
 
   const validate = (): boolean => {
     const newErrors: Partial<Record<keyof Config, string>> = {};
@@ -74,14 +71,7 @@ export default function ConfigForm({ onSubmit, loading = false }: ConfigFormProp
   };
 
   const handleReset = () => {
-    setConfig({
-      repository: '',
-      token: '',
-      startDate: '',
-      endDate: '',
-      ratePerPoint: 25,
-      currencySymbol: '₳',
-    });
+    setConfig({ ...defaultConfig });
     setErrors({});
   };
 

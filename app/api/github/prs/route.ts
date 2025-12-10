@@ -125,17 +125,19 @@ export async function POST(request: NextRequest) {
         (a, b) => new Date(b.mergedAt).getTime() - new Date(a.mergedAt).getTime()
       ),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching PRs:', error);
 
-    if (error.status === 401) {
+    const apiError = error as { status?: number; message?: string };
+
+    if (apiError.status === 401) {
       return NextResponse.json(
         { error: 'Invalid GitHub token' },
         { status: 401 }
       );
     }
 
-    if (error.status === 404) {
+    if (apiError.status === 404) {
       return NextResponse.json(
         { error: 'Repository not found' },
         { status: 404 }
@@ -143,7 +145,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch PRs' },
+      { error: apiError.message || 'Failed to fetch PRs' },
       { status: 500 }
     );
   }

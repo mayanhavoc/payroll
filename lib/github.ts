@@ -113,13 +113,15 @@ export async function fetchMergedPRs({
     return prsWithPoints.sort((a, b) =>
       new Date(b.mergedAt).getTime() - new Date(a.mergedAt).getTime()
     );
-  } catch (error: any) {
-    if (error.status === 401) {
+  } catch (error: unknown) {
+    const apiError = error as { status?: number; message?: string };
+
+    if (apiError.status === 401) {
       throw new Error('Invalid GitHub token. Please check your access token.');
     }
-    if (error.status === 404) {
+    if (apiError.status === 404) {
       throw new Error('Repository not found. Check the repository name and your access permissions.');
     }
-    throw new Error(`Failed to fetch PRs: ${error.message}`);
+    throw new Error(`Failed to fetch PRs: ${apiError.message || 'Unknown error'}`);
   }
 }

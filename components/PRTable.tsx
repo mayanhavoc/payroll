@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import { PullRequest } from '@/types';
 import { format } from 'date-fns';
 import { formatCurrency } from '@/lib/calculations';
@@ -172,10 +173,12 @@ export default function PRTable({
                 <td className="py-3 px-4">
                   <div className="flex items-center gap-2">
                     {pr.authorAvatar && (
-                      <img
+                      <Image
                         src={pr.authorAvatar}
                         alt={pr.author}
-                        className="w-6 h-6 rounded-full"
+                        width={24}
+                        height={24}
+                        className="w-6 h-6 rounded-full object-cover"
                       />
                     )}
                     <span className="text-sm">{pr.author}</span>
@@ -259,10 +262,12 @@ export default function PRTable({
             <p className="text-sm font-medium mb-2">{pr.title}</p>
             <div className="flex items-center gap-2 mb-2">
               {pr.authorAvatar && (
-                <img
+                <Image
                   src={pr.authorAvatar}
                   alt={pr.author}
-                  className="w-5 h-5 rounded-full"
+                  width={20}
+                  height={20}
+                  className="w-5 h-5 rounded-full object-cover"
                 />
               )}
               <span className="text-sm text-gray-600 dark:text-gray-400">{pr.author}</span>

@@ -61,8 +61,9 @@ export default function Home() {
 
       setPRs(fetchedPRs);
       savePRs(fetchedPRs);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch pull requests');
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      setError(error.message || 'Failed to fetch pull requests');
       console.error('Error fetching PRs:', err);
     } finally {
       setLoading(false);

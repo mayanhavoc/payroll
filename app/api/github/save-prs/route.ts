@@ -56,10 +56,11 @@ export async function POST(request: NextRequest) {
     );
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error saving PRs:', error);
+    const apiError = error as { message?: string };
     return NextResponse.json(
-      { error: error.message || 'Failed to save PRs' },
+      { error: apiError.message || 'Failed to save PRs' },
       { status: 500 }
     );
   }
