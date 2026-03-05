@@ -83,8 +83,8 @@ model PullRequestData {
   authorAvatar    String?
   mergedAt        String
   url             String
-  detectedPoints  Int?
-  assignedPoints  Int      @default(0)
+  detectedPoints  Float?
+  assignedPoints  Float    @default(0)
   excluded        Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

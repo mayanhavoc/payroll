@@ -15,9 +15,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Get request body
-    const { repository, startDate, endDate } = await request.json();
+    const { repository, repositories, contributors, startDate, endDate } =
+      await request.json();
 
-    if (!repository || !startDate || !endDate) {
+    const repoList: string[] = Array.isArray(repositories)
+      ? repositories
+      : repository
+        ? [repository]
+        : [];
+
+    if (repoList.length === 0 || !startDate || !endDate) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -42,83 +49,107 @@ export async function POST(request: NextRequest) {
     // Decrypt the token
     const token = decryptToken(account.access_token);
 
-    // Fetch PRs from GitHub
-    const [owner, repo] = repository.split('/');
-    if (!owner || !repo) {
-      return NextResponse.json(
-        { error: 'Invalid repository format. Use: owner/repo' },
-        { status: 400 }
-      );
-    }
+    const contributorSet = new Set(
+      (Array.isArray(contributors) ? contributors : [])
+        .map((entry: string) => entry.toLowerCase())
+        .filter(Boolean)
+    );
 
     const octokit = new Octokit({ auth: token });
 
-    const { data: pullRequests } = await octokit.pulls.list({
-      owner,
-      repo,
-      state: 'closed',
-      sort: 'updated',
-      direction: 'desc',
-      per_page: 100,
-    });
-
-    // Filter by merge date
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-
-    const mergedPRs = pullRequests.filter((pr) => {
-      if (!pr.merged_at) return false;
-      const mergedDate = new Date(pr.merged_at);
-      return mergedDate >= start && mergedDate <= end;
-    });
-
-    // Fetch comments for each PR to detect points
-    const prsWithPoints = await Promise.all(
-      mergedPRs.map(async (pr) => {
-        let detectedPoints: number | null = null;
-
-        try {
-          const { data: comments } = await octokit.issues.listComments({
-            owner,
-            repo,
-            issue_number: pr.number,
-            per_page: 100,
-          });
-
-          const commentBodies = comments.map((c) => c.body || '');
-          if (pr.body) {
-            commentBodies.unshift(pr.body);
+    const prsWithPoints = (
+      await Promise.all(
+        repoList.map(async (repoEntry) => {
+          const [owner, repo] = repoEntry.split('/');
+          if (!owner || !repo) {
+            throw new Error(`Invalid repository format: ${repoEntry}`);
           }
 
-          detectedPoints = detectPointsFromComments(commentBodies);
-        } catch (error) {
-          console.warn(`Failed to fetch comments for PR #${pr.number}:`, error);
-        }
+          // Use search API to find all merged PRs in the date range
+          const query = `repo:${owner}/${repo} is:pr is:merged merged:${startDate}..${endDate}`;
+          const mergedPRs: { number: number; title: string; login: string; avatar: string; merged_at: string; html_url: string; body: string | null }[] = [];
 
-        // Check if we have saved data for this PR
-        const savedPR = await prisma.pullRequestData.findUnique({
-          where: {
-            userId_repository_prNumber: {
-              userId: session.user.id!,
-              repository,
-              prNumber: pr.number,
-            },
-          },
-        });
+          let page = 1;
+          while (true) {
+            const { data } = await octokit.search.issuesAndPullRequests({
+              q: query,
+              per_page: 100,
+              page,
+              sort: 'updated',
+              order: 'desc',
+            });
 
-        return {
-          number: pr.number,
-          title: pr.title,
-          author: pr.user?.login || 'unknown',
-          authorAvatar: pr.user?.avatar_url || '',
-          mergedAt: pr.merged_at || '',
-          url: pr.html_url,
-          detectedPoints,
-          assignedPoints: savedPR?.assignedPoints ?? detectedPoints ?? 0,
-          excluded: savedPR?.excluded ?? false,
-        };
-      })
-    );
+            for (const item of data.items) {
+              const author = item.user?.login?.toLowerCase() ?? '';
+              if (contributorSet.size > 0 && !contributorSet.has(author)) continue;
+
+              mergedPRs.push({
+                number: item.number,
+                title: item.title,
+                login: item.user?.login || 'unknown',
+                avatar: item.user?.avatar_url || '',
+                merged_at: (item.pull_request as { merged_at?: string })?.merged_at || '',
+                html_url: item.html_url,
+                body: item.body ?? null,
+              });
+            }
+
+            if (mergedPRs.length >= data.total_count || data.items.length < 100) break;
+            page++;
+          }
+
+          return Promise.all(
+            mergedPRs.map(async (pr) => {
+              let detectedPoints: number | null = null;
+
+              try {
+                const { data: comments } = await octokit.issues.listComments({
+                  owner,
+                  repo,
+                  issue_number: pr.number,
+                  per_page: 100,
+                });
+
+                const commentBodies = comments.map((c) => c.body || '');
+                if (pr.body) {
+                  commentBodies.unshift(pr.body);
+                }
+
+                detectedPoints = detectPointsFromComments(commentBodies);
+              } catch (error) {
+                console.warn(
+                  `Failed to fetch comments for PR #${pr.number} in ${repoEntry}:`,
+                  error
+                );
+              }
+
+              const savedPR = await prisma.pullRequestData.findUnique({
+                where: {
+                  userId_repository_prNumber: {
+                    userId: session.user.id!,
+                    repository: repoEntry,
+                    prNumber: pr.number,
+                  },
+                },
+              });
+
+              return {
+                repository: repoEntry,
+                number: pr.number,
+                title: pr.title,
+                author: pr.login,
+                authorAvatar: pr.avatar,
+                mergedAt: pr.merged_at,
+                url: pr.html_url,
+                detectedPoints,
+                assignedPoints: savedPR?.assignedPoints ?? detectedPoints ?? 0,
+                excluded: savedPR?.excluded ?? false,
+              };
+            })
+          );
+        })
+      )
+    ).flat();
 
     return NextResponse.json({
       prs: prsWithPoints.sort(

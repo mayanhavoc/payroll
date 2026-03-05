@@ -17,6 +17,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(false);
+  const [filterAuthor, setFilterAuthor] = useState<string>('all');
+  const [filterRepo, setFilterRepo] = useState<string>('all');
 
   // Load dark mode preference and PRs on mount
   useEffect(() => {
@@ -52,9 +54,10 @@ export default function Home() {
     setConfig(newConfig);
 
     try {
+      const repository = newConfig.repositories[0];
       const fetchedPRs = await fetchMergedPRs({
-        repository: newConfig.repository,
-        token: newConfig.token,
+        repository,
+        token: newConfig.token || '',
         startDate: newConfig.startDate,
         endDate: newConfig.endDate,
       });
@@ -71,18 +74,22 @@ export default function Home() {
   };
 
   // Update PR points
-  const handleUpdatePoints = (prNumber: number, points: number) => {
+  const handleUpdatePoints = (repository: string, prNumber: number, points: number) => {
     const updatedPRs = prs.map((pr) =>
-      pr.number === prNumber ? { ...pr, assignedPoints: points } : pr
+      pr.number === prNumber && pr.repository === repository
+        ? { ...pr, assignedPoints: points }
+        : pr
     );
     setPRs(updatedPRs);
     savePRs(updatedPRs);
   };
 
   // Toggle PR exclusion
-  const handleToggleExclude = (prNumber: number) => {
+  const handleToggleExclude = (repository: string, prNumber: number) => {
     const updatedPRs = prs.map((pr) =>
-      pr.number === prNumber ? { ...pr, excluded: !pr.excluded } : pr
+      pr.number === prNumber && pr.repository === repository
+        ? { ...pr, excluded: !pr.excluded }
+        : pr
     );
     setPRs(updatedPRs);
     savePRs(updatedPRs);
@@ -93,8 +100,11 @@ export default function Home() {
     ? calculateSummary(prs, config.ratePerPoint)
     : {
         totalPRs: 0,
+        totalTasks: 0,
         totalPoints: 0,
         totalPayout: 0,
+        prPoints: 0,
+        taskPoints: 0,
         contributors: [],
       };
 
@@ -148,7 +158,12 @@ export default function Home() {
 
           {/* Summary */}
           {!loading && prs.length > 0 && config && (
-            <Summary summary={summary} currency={config.currencySymbol} />
+            <Summary
+              summary={summary}
+              currency={config.currencySymbol}
+              budgetRemaining={config.budgetRemaining}
+              budgetRemainingAfter={config.budgetRemaining - summary.totalPayout}
+            />
           )}
 
           {/* PR Table */}
@@ -157,6 +172,10 @@ export default function Home() {
               prs={prs}
               ratePerPoint={config.ratePerPoint}
               currency={config.currencySymbol}
+              filterAuthor={filterAuthor}
+              filterRepo={filterRepo}
+              onFilterAuthorChange={setFilterAuthor}
+              onFilterRepoChange={setFilterRepo}
               onUpdatePoints={handleUpdatePoints}
               onToggleExclude={handleToggleExclude}
             />
@@ -166,11 +185,14 @@ export default function Home() {
           {!loading && prs.length > 0 && config && (
             <ExportButtons
               prs={prs}
-              repository={config.repository}
+              manualTasks={[]}
+              repositories={config.repositories}
+              contributors={config.contributors}
               startDate={config.startDate}
               endDate={config.endDate}
               ratePerPoint={config.ratePerPoint}
               currency={config.currencySymbol}
+              budgetRemaining={config.budgetRemaining}
             />
           )}
         </div>

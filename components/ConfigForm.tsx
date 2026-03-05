@@ -5,35 +5,84 @@ import { Config } from '@/types';
 import { validateRepository, validateToken, validateDateRange } from '@/lib/calculations';
 import { saveConfig, loadConfig } from '@/lib/storage';
 
+interface ConfigFormState {
+  repositories: string[];
+  contributorsText: string;
+  token: string;
+  startDate: string;
+  endDate: string;
+  ratePerPoint: number;
+  currencySymbol: string;
+  budgetRemaining: number;
+}
+
 interface ConfigFormProps {
   onSubmit: (config: Config) => void;
   loading?: boolean;
 }
 
-const defaultConfig: Config = {
-  repository: '',
+const DEFAULT_REPOSITORIES = [
+  'Andamio-Platform/andamio-platform',
+  'Andamio-Platform/andamio-t3-app-template',
+  'Andamio-Platform/andamio-db-api-go',
+  'Andamio-Platform/andamio-db-api',
+];
+
+const DEFAULT_CONTRIBUTORS = ['wattsmainsanglais', 'zootechdrum'];
+
+const defaultConfig: ConfigFormState = {
+  repositories: [...DEFAULT_REPOSITORIES],
+  contributorsText: DEFAULT_CONTRIBUTORS.join(', '),
   token: '',
   startDate: '',
   endDate: '',
-  ratePerPoint: 25,
+  ratePerPoint: 43.75,
   currencySymbol: '₳',
+  budgetRemaining: 5096.1875,
 };
 
+const parseList = (value: string): string[] =>
+  value
+    .split(/[\n,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
 export default function ConfigForm({ onSubmit, loading = false }: ConfigFormProps) {
-  const [config, setConfig] = useState<Config>(() => {
+  const [repoInput, setRepoInput] = useState('');
+  const [config, setConfig] = useState<ConfigFormState>(() => {
     const saved = loadConfig();
-    return saved ?? { ...defaultConfig };
+    if (saved) {
+      const repositories = saved.repositories?.length
+        ? saved.repositories
+        : DEFAULT_REPOSITORIES;
+      const contributors = saved.contributors?.length ? saved.contributors : DEFAULT_CONTRIBUTORS;
+      return {
+        repositories,
+        contributorsText: contributors.join(', '),
+        token: saved.token ?? '',
+        startDate: saved.startDate ?? '',
+        endDate: saved.endDate ?? '',
+        ratePerPoint: saved.ratePerPoint ?? defaultConfig.ratePerPoint,
+        currencySymbol: saved.currencySymbol ?? defaultConfig.currencySymbol,
+        budgetRemaining: saved.budgetRemaining ?? defaultConfig.budgetRemaining,
+      };
+    }
+    return { ...defaultConfig };
   });
 
-  const [errors, setErrors] = useState<Partial<Record<keyof Config, string>>>({});
+  const [errors, setErrors] = useState<Partial<Record<keyof ConfigFormState, string>>>({});
 
   const validate = (): boolean => {
-    const newErrors: Partial<Record<keyof Config, string>> = {};
+    const newErrors: Partial<Record<keyof ConfigFormState, string>> = {};
+    const contributors = parseList(config.contributorsText);
 
-    if (!config.repository) {
-      newErrors.repository = 'Repository is required';
-    } else if (!validateRepository(config.repository)) {
-      newErrors.repository = 'Invalid format. Use: owner/repo';
+    if (config.repositories.length === 0) {
+      newErrors.repositories = 'Select at least one repository';
+    } else {
+      const invalidRepos = config.repositories.filter((repo) => !validateRepository(repo));
+      if (invalidRepos.length > 0) {
+        newErrors.repositories = `Invalid repo(s): ${invalidRepos.join(', ')}`;
+      }
     }
 
     if (!config.token) {
@@ -58,6 +107,14 @@ export default function ConfigForm({ onSubmit, loading = false }: ConfigFormProp
       newErrors.ratePerPoint = 'Rate must be a positive number';
     }
 
+    if (config.budgetRemaining < 0) {
+      newErrors.budgetRemaining = 'Budget must be zero or greater';
+    }
+
+    if (contributors.length === 0) {
+      newErrors.contributorsText = 'At least one contributor is required';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -65,8 +122,19 @@ export default function ConfigForm({ onSubmit, loading = false }: ConfigFormProp
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (validate()) {
-      saveConfig(config);
-      onSubmit(config);
+      const contributors = parseList(config.contributorsText);
+      const normalizedConfig: Config = {
+        repositories: config.repositories,
+        contributors,
+        startDate: config.startDate,
+        endDate: config.endDate,
+        ratePerPoint: config.ratePerPoint,
+        currencySymbol: config.currencySymbol,
+        budgetRemaining: config.budgetRemaining,
+        token: config.token,
+      };
+      saveConfig(normalizedConfig);
+      onSubmit(normalizedConfig);
     }
   };
 
@@ -80,22 +148,67 @@ export default function ConfigForm({ onSubmit, loading = false }: ConfigFormProp
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Configuration</h2>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Repository */}
+        {/* Repositories */}
         <div className="md:col-span-2">
-          <label htmlFor="repository" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            GitHub Repository *
+          <label htmlFor="repoInput" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            GitHub Repositories *
           </label>
-          <input
-            type="text"
-            id="repository"
-            placeholder="owner/repo"
-            value={config.repository}
-            onChange={(e) => setConfig({ ...config, repository: e.target.value })}
-            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white ${
-              errors.repository ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
-            }`}
-          />
-          {errors.repository && <p className="text-red-500 text-sm mt-1">{errors.repository}</p>}
+          <div className="flex flex-wrap gap-2 mb-2">
+            {config.repositories.map((repo) => (
+              <span
+                key={repo}
+                className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-sm rounded-md"
+              >
+                {repo}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setConfig({ ...config, repositories: config.repositories.filter((r) => r !== repo) })
+                  }
+                  className="text-blue-600 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-100 font-bold"
+                  aria-label={`Remove ${repo}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              id="repoInput"
+              placeholder="owner/repo"
+              value={repoInput}
+              onChange={(e) => setRepoInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const repo = repoInput.trim();
+                  if (repo && !config.repositories.includes(repo)) {
+                    setConfig({ ...config, repositories: [...config.repositories, repo] });
+                    setRepoInput('');
+                  }
+                }
+              }}
+              className={`flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white ${
+                errors.repositories ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+              }`}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const repo = repoInput.trim();
+                if (repo && !config.repositories.includes(repo)) {
+                  setConfig({ ...config, repositories: [...config.repositories, repo] });
+                  setRepoInput('');
+                }
+              }}
+              className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors"
+            >
+              Add
+            </button>
+          </div>
+          {errors.repositories && <p className="text-red-500 text-sm mt-1">{errors.repositories}</p>}
         </div>
 
         {/* Token */}
@@ -182,6 +295,43 @@ export default function ConfigForm({ onSubmit, loading = false }: ConfigFormProp
             onChange={(e) => setConfig({ ...config, currencySymbol: e.target.value })}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
           />
+        </div>
+
+        {/* Contributors */}
+        <div className="md:col-span-2">
+          <label htmlFor="contributorsText" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Contributors (GitHub usernames) *
+          </label>
+          <input
+            type="text"
+            id="contributorsText"
+            placeholder="user1, user2"
+            value={config.contributorsText}
+            onChange={(e) => setConfig({ ...config, contributorsText: e.target.value })}
+            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white ${
+              errors.contributorsText ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+            }`}
+          />
+          {errors.contributorsText && <p className="text-red-500 text-sm mt-1">{errors.contributorsText}</p>}
+        </div>
+
+        {/* Budget Remaining */}
+        <div>
+          <label htmlFor="budgetRemaining" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Budget Remaining (ADA)
+          </label>
+          <input
+            type="number"
+            id="budgetRemaining"
+            min="0"
+            step="0.0001"
+            value={config.budgetRemaining}
+            onChange={(e) => setConfig({ ...config, budgetRemaining: parseFloat(e.target.value) || 0 })}
+            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white ${
+              errors.budgetRemaining ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+            }`}
+          />
+          {errors.budgetRemaining && <p className="text-red-500 text-sm mt-1">{errors.budgetRemaining}</p>}
         </div>
       </div>
 

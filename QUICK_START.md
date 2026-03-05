@@ -5,7 +5,7 @@ Get up and running with the GitHub Payroll Calculator in 5 minutes!
 ## 🚀 Installation
 
 ```bash
-cd /Users/robertom/Documents/2025/github-payroll-app
+cd /Users/robertom/Documents/Workspace/Projects/github-payroll-app
 npm install
 npm run dev
 ```

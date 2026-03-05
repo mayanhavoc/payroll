@@ -1,23 +1,32 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { PullRequest } from '@/types';
+import { Config, PullRequest, ManualTask } from '@/types';
 import { calculateSummary } from '@/lib/calculations';
 import ConfigFormOAuth from '@/components/ConfigFormOAuth';
 import PRTable from '@/components/PRTable';
+import ManualTasks from '@/components/ManualTasks';
 import Summary from '@/components/Summary';
 import ExportButtons from '@/components/ExportButtons';
 import { Moon, Sun, Github, LogOut, User } from 'lucide-react';
 
-interface Config {
-  repository: string;
-  startDate: string;
-  endDate: string;
-  ratePerPoint: number;
-  currencySymbol: string;
+const TASKS_STORAGE_KEY = 'payroll_manual_tasks';
+
+function loadManualTasks(): ManualTask[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const saved = localStorage.getItem(TASKS_STORAGE_KEY);
+    return saved ? JSON.parse(saved) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveManualTasks(tasks: ManualTask[]) {
+  localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks));
 }
 
 export default function Home() {
@@ -25,9 +34,14 @@ export default function Home() {
   const router = useRouter();
   const [config, setConfig] = useState<Config | null>(null);
   const [prs, setPRs] = useState<PullRequest[]>([]);
+  const [manualTasks, setManualTasks] = useState<ManualTask[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(false);
+
+  // Lifted filter state — shared between PRTable and Summary
+  const [filterAuthor, setFilterAuthor] = useState<string>('all');
+  const [filterRepo, setFilterRepo] = useState<string>('all');
 
   // Redirect to sign in if not authenticated
   useEffect(() => {
@@ -36,21 +50,20 @@ export default function Home() {
     }
   }, [status, router]);
 
-  // Load dark mode preference
+  // Load dark mode + manual tasks
   useEffect(() => {
     const isDark = localStorage.getItem('payroll_dark_mode') === 'true';
     setDarkMode(isDark);
     if (isDark) {
       document.documentElement.classList.add('dark');
     }
+    setManualTasks(loadManualTasks());
   }, []);
 
-  // Toggle dark mode
   const toggleDarkMode = () => {
     const newDarkMode = !darkMode;
     setDarkMode(newDarkMode);
     localStorage.setItem('payroll_dark_mode', String(newDarkMode));
-
     if (newDarkMode) {
       document.documentElement.classList.add('dark');
     } else {
@@ -69,7 +82,8 @@ export default function Home() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          repository: newConfig.repository,
+          repositories: newConfig.repositories,
+          contributors: newConfig.contributors,
           startDate: newConfig.startDate,
           endDate: newConfig.endDate,
         }),
@@ -92,22 +106,20 @@ export default function Home() {
   };
 
   // Update PR points
-  const handleUpdatePoints = async (prNumber: number, points: number) => {
+  const handleUpdatePoints = async (repository: string, prNumber: number, points: number) => {
     const updatedPRs = prs.map((pr) =>
-      pr.number === prNumber ? { ...pr, assignedPoints: points } : pr
+      pr.number === prNumber && pr.repository === repository
+        ? { ...pr, assignedPoints: points }
+        : pr
     );
     setPRs(updatedPRs);
 
-    // Save to database
     if (config) {
       try {
         await fetch('/api/github/save-prs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prs: updatedPRs,
-            repository: config.repository,
-          }),
+          body: JSON.stringify({ prs: updatedPRs }),
         });
       } catch (error) {
         console.error('Failed to save PRs:', error);
@@ -116,22 +128,20 @@ export default function Home() {
   };
 
   // Toggle PR exclusion
-  const handleToggleExclude = async (prNumber: number) => {
+  const handleToggleExclude = async (repository: string, prNumber: number) => {
     const updatedPRs = prs.map((pr) =>
-      pr.number === prNumber ? { ...pr, excluded: !pr.excluded } : pr
+      pr.number === prNumber && pr.repository === repository
+        ? { ...pr, excluded: !pr.excluded }
+        : pr
     );
     setPRs(updatedPRs);
 
-    // Save to database
     if (config) {
       try {
         await fetch('/api/github/save-prs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prs: updatedPRs,
-            repository: config.repository,
-          }),
+          body: JSON.stringify({ prs: updatedPRs }),
         });
       } catch (error) {
         console.error('Failed to save PRs:', error);
@@ -139,15 +149,61 @@ export default function Home() {
     }
   };
 
-  // Calculate summary
+  // Manual task handlers
+  const handleAddTask = (task: ManualTask) => {
+    const updated = [...manualTasks, task];
+    setManualTasks(updated);
+    saveManualTasks(updated);
+  };
+
+  const handleRemoveTask = (id: string) => {
+    const updated = manualTasks.filter((t) => t.id !== id);
+    setManualTasks(updated);
+    saveManualTasks(updated);
+  };
+
+  const handleUpdateTaskPoints = (id: string, points: number) => {
+    const updated = manualTasks.map((t) => (t.id === id ? { ...t, points } : t));
+    setManualTasks(updated);
+    saveManualTasks(updated);
+  };
+
+  const handleToggleTaskExclude = (id: string) => {
+    const updated = manualTasks.map((t) => (t.id === id ? { ...t, excluded: !t.excluded } : t));
+    setManualTasks(updated);
+    saveManualTasks(updated);
+  };
+
+  // Filtered data — respects author and repo filters
+  const filteredPRs = useMemo(() => {
+    return prs.filter((pr) => {
+      const matchesAuthor = filterAuthor === 'all' || pr.author === filterAuthor;
+      const matchesRepo = filterRepo === 'all' || pr.repository === filterRepo;
+      return matchesAuthor && matchesRepo;
+    });
+  }, [prs, filterAuthor, filterRepo]);
+
+  const filteredTasks = useMemo(() => {
+    return manualTasks.filter((t) => {
+      return filterAuthor === 'all' || t.contributor === filterAuthor;
+    });
+  }, [manualTasks, filterAuthor]);
+
+  // Summary uses filtered data
   const summary = config
-    ? calculateSummary(prs, config.ratePerPoint)
-    : {
-        totalPRs: 0,
-        totalPoints: 0,
-        totalPayout: 0,
-        contributors: [],
-      };
+    ? calculateSummary(filteredPRs, config.ratePerPoint, filteredTasks)
+    : { totalPRs: 0, totalTasks: 0, totalPoints: 0, totalPayout: 0, prPoints: 0, taskPoints: 0, contributors: [] };
+
+  const budgetRemainingAfter = config ? config.budgetRemaining - summary.totalPayout : 0;
+
+  const filterLabel = filterAuthor !== 'all'
+    ? filterAuthor
+    : filterRepo !== 'all'
+      ? filterRepo.split('/')[1] ?? filterRepo
+      : undefined;
+
+  // Contributors list for manual task dropdown
+  const contributorNames = config?.contributors ?? [];
 
   if (status === 'loading') {
     return (
@@ -161,24 +217,23 @@ export default function Home() {
   }
 
   if (!session) {
-    return null; // Will redirect in useEffect
+    return null;
   }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
       {/* Header */}
-      <header className="bg-white dark:bg-gray-800 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Github size={32} className="text-gray-900 dark:text-white" />
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                GitHub Payroll Calculator
+            <div className="flex items-center gap-2.5">
+              <Github size={24} className="text-gray-900 dark:text-white" />
+              <h1 className="text-lg font-semibold text-gray-900 dark:text-white tracking-tight">
+                Payroll
               </h1>
             </div>
-            <div className="flex items-center gap-3">
-              {/* User Info */}
-              <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md">
                 {session.user?.image ? (
                   <Image
                     src={session.user.image}
@@ -188,33 +243,25 @@ export default function Home() {
                     className="w-6 h-6 rounded-full object-cover"
                   />
                 ) : (
-                  <User size={20} className="text-gray-600 dark:text-gray-400" />
+                  <User size={18} className="text-gray-500 dark:text-gray-400" />
                 )}
-                <span className="text-sm font-medium text-gray-900 dark:text-white">
+                <span className="text-sm text-gray-700 dark:text-gray-300 hidden sm:inline">
                   {session.user?.name || session.user?.email}
                 </span>
               </div>
-
-              {/* Dark Mode Toggle */}
               <button
                 onClick={toggleDarkMode}
-                className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 aria-label="Toggle dark mode"
               >
-                {darkMode ? (
-                  <Sun size={20} className="text-yellow-500" />
-                ) : (
-                  <Moon size={20} className="text-gray-700" />
-                )}
+                {darkMode ? <Sun size={18} className="text-amber-500" /> : <Moon size={18} className="text-gray-500" />}
               </button>
-
-              {/* Sign Out */}
               <button
                 onClick={() => signOut({ callbackUrl: '/auth/signin' })}
-                className="flex items-center gap-2 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                aria-label="Sign out"
               >
                 <LogOut size={18} />
-                <span className="text-sm font-medium">Sign Out</span>
               </button>
             </div>
           </div>
@@ -224,17 +271,14 @@ export default function Home() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="space-y-6">
-          {/* Configuration Form */}
           <ConfigFormOAuth onSubmit={handleFetchPRs} loading={loading} />
 
-          {/* Error Message */}
           {error && (
             <div className="bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg p-4">
               <p className="text-red-800 dark:text-red-200">{error}</p>
             </div>
           )}
 
-          {/* Loading State */}
           {loading && (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-12 text-center">
               <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
@@ -242,9 +286,15 @@ export default function Home() {
             </div>
           )}
 
-          {/* Summary */}
-          {!loading && prs.length > 0 && config && (
-            <Summary summary={summary} currency={config.currencySymbol} />
+          {/* Summary — filter-aware */}
+          {!loading && (prs.length > 0 || manualTasks.length > 0) && config && (
+            <Summary
+              summary={summary}
+              currency={config.currencySymbol}
+              budgetRemaining={config.budgetRemaining}
+              budgetRemainingAfter={budgetRemainingAfter}
+              filterLabel={filterLabel}
+            />
           )}
 
           {/* PR Table */}
@@ -253,33 +303,48 @@ export default function Home() {
               prs={prs}
               ratePerPoint={config.ratePerPoint}
               currency={config.currencySymbol}
+              filterAuthor={filterAuthor}
+              filterRepo={filterRepo}
+              onFilterAuthorChange={setFilterAuthor}
+              onFilterRepoChange={setFilterRepo}
               onUpdatePoints={handleUpdatePoints}
               onToggleExclude={handleToggleExclude}
             />
           )}
 
-          {/* Export Buttons */}
-          {!loading && prs.length > 0 && config && (
+          {/* Manual Tasks */}
+          {!loading && config && (
+            <ManualTasks
+              tasks={filteredTasks}
+              contributors={contributorNames}
+              ratePerPoint={config.ratePerPoint}
+              currency={config.currencySymbol}
+              onAdd={handleAddTask}
+              onRemove={handleRemoveTask}
+              onUpdatePoints={handleUpdateTaskPoints}
+              onToggleExclude={handleToggleTaskExclude}
+            />
+          )}
+
+          {/* Export — uses filtered data */}
+          {!loading && (prs.length > 0 || manualTasks.length > 0) && config && (
             <ExportButtons
-              prs={prs}
-              repository={config.repository}
+              prs={filteredPRs}
+              manualTasks={filteredTasks}
+              repositories={config.repositories}
+              contributors={filterAuthor !== 'all' ? [filterAuthor] : config.contributors}
               startDate={config.startDate}
               endDate={config.endDate}
               ratePerPoint={config.ratePerPoint}
               currency={config.currencySymbol}
+              budgetRemaining={config.budgetRemaining}
             />
           )}
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="mt-12 py-6 text-center text-sm text-gray-600 dark:text-gray-400">
-        <p>
-          Secure Production Version • Built with Next.js, TypeScript, and Tailwind CSS •{' '}
-          <span className="text-green-600 dark:text-green-400 font-medium">
-            OAuth 2.0 + Encrypted Storage
-          </span>
-        </p>
+      <footer className="mt-12 py-6 text-center text-xs text-gray-400 dark:text-gray-600">
+        <p>GitHub Payroll · OAuth 2.0 · Encrypted Storage</p>
       </footer>
     </div>
   );

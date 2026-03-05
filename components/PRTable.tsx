@@ -4,32 +4,40 @@ import { useState } from 'react';
 import Image from 'next/image';
 import { PullRequest } from '@/types';
 import { format } from 'date-fns';
-import { formatCurrency } from '@/lib/calculations';
 import { ExternalLink, CheckCircle2, Circle } from 'lucide-react';
+import CurrencyAmount from '@/components/CurrencyAmount';
 
 interface PRTableProps {
   prs: PullRequest[];
   ratePerPoint: number;
   currency: string;
-  onUpdatePoints: (prNumber: number, points: number) => void;
-  onToggleExclude: (prNumber: number) => void;
+  filterAuthor: string;
+  filterRepo: string;
+  onFilterAuthorChange: (author: string) => void;
+  onFilterRepoChange: (repo: string) => void;
+  onUpdatePoints: (repository: string, prNumber: number, points: number) => void;
+  onToggleExclude: (repository: string, prNumber: number) => void;
 }
 
 export default function PRTable({
   prs,
   ratePerPoint,
   currency,
+  filterAuthor,
+  filterRepo,
+  onFilterAuthorChange,
+  onFilterRepoChange,
   onUpdatePoints,
   onToggleExclude,
 }: PRTableProps) {
-  const [editingPR, setEditingPR] = useState<number | null>(null);
+  const [editingPR, setEditingPR] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterAuthor, setFilterAuthor] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'date' | 'points' | 'author'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Get unique authors for filter dropdown
   const uniqueAuthors = Array.from(new Set(prs.map((pr) => pr.author))).sort();
+  const uniqueRepos = Array.from(new Set(prs.map((pr) => pr.repository))).sort();
 
   // Filter PRs
   const filteredPRs = prs.filter((pr) => {
@@ -40,8 +48,9 @@ export default function PRTable({
       pr.number.toString().includes(searchTerm);
 
     const matchesAuthor = filterAuthor === 'all' || pr.author === filterAuthor;
+    const matchesRepo = filterRepo === 'all' || pr.repository === filterRepo;
 
-    return matchesSearch && matchesAuthor;
+    return matchesSearch && matchesAuthor && matchesRepo;
   });
 
   // Sort PRs
@@ -63,10 +72,10 @@ export default function PRTable({
     return sortOrder === 'asc' ? comparison : -comparison;
   });
 
-  const handlePointsChange = (prNumber: number, value: string) => {
-    const points = parseInt(value, 10);
+  const handlePointsChange = (repository: string, prNumber: number, value: string) => {
+    const points = parseFloat(value);
     if (!isNaN(points) && points >= 0 && points <= 100) {
-      onUpdatePoints(prNumber, points);
+      onUpdatePoints(repository, prNumber, points);
     }
   };
 
@@ -105,13 +114,27 @@ export default function PRTable({
           {/* Author Filter */}
           <select
             value={filterAuthor}
-            onChange={(e) => setFilterAuthor(e.target.value)}
+            onChange={(e) => onFilterAuthorChange(e.target.value)}
             className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
           >
             <option value="all">All Authors</option>
             {uniqueAuthors.map((author) => (
               <option key={author} value={author}>
                 {author}
+              </option>
+            ))}
+          </select>
+
+          {/* Repo Filter */}
+          <select
+            value={filterRepo}
+            onChange={(e) => onFilterRepoChange(e.target.value)}
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+          >
+            <option value="all">All Repos</option>
+            {uniqueRepos.map((repo) => (
+              <option key={repo} value={repo}>
+                {repo}
               </option>
             ))}
           </select>
@@ -122,104 +145,113 @@ export default function PRTable({
       <div className="hidden md:block overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-gray-200 dark:border-gray-700">
-              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">PR</th>
-              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Title</th>
+            <tr className="border-b-2 border-gray-200 dark:border-gray-700">
+              <th className="text-left py-3 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-[5%]">PR</th>
+              <th className="text-left py-3 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-[14%]">Repo</th>
+              <th className="text-left py-3 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Title</th>
               <th
-                className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300 cursor-pointer hover:text-blue-600"
+                className="text-left py-3 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 cursor-pointer hover:text-blue-600 w-[12%]"
                 onClick={() => toggleSort('author')}
               >
                 Author {sortBy === 'author' && (sortOrder === 'asc' ? '↑' : '↓')}
               </th>
               <th
-                className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300 cursor-pointer hover:text-blue-600"
+                className="text-left py-3 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 cursor-pointer hover:text-blue-600 w-[9%]"
                 onClick={() => toggleSort('date')}
               >
                 Merged {sortBy === 'date' && (sortOrder === 'asc' ? '↑' : '↓')}
               </th>
-              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Detected</th>
+              <th className="text-center py-3 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-[7%]">Det.</th>
               <th
-                className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300 cursor-pointer hover:text-blue-600"
+                className="text-center py-3 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 cursor-pointer hover:text-blue-600 w-[8%]"
                 onClick={() => toggleSort('points')}
               >
                 Points {sortBy === 'points' && (sortOrder === 'asc' ? '↑' : '↓')}
               </th>
-              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Payout</th>
-              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Include</th>
+              <th className="text-right py-3 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-[9%]">Payout</th>
+              <th className="text-center py-3 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 w-[4%]"></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {sortedPRs.map((pr) => (
               <tr
-                key={pr.number}
-                className={`border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                  pr.excluded ? 'opacity-50' : ''
-                } ${editingPR === pr.number ? 'bg-blue-50 dark:bg-blue-900' : ''}`}
+                key={`${pr.repository}#${pr.number}`}
+                className={`transition-colors hover:bg-gray-50/80 dark:hover:bg-gray-700/50 ${
+                  pr.excluded ? 'opacity-40' : ''
+                } ${editingPR === `${pr.repository}#${pr.number}` ? 'bg-blue-50 dark:bg-blue-900/30' : ''}`}
               >
-                <td className="py-3 px-4">
+                <td className="py-2.5 px-3">
                   <a
                     href={pr.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 inline-flex items-center gap-1 font-mono text-sm"
                   >
                     #{pr.number}
-                    <ExternalLink size={14} />
+                    <ExternalLink size={12} />
                   </a>
                 </td>
-                <td className="py-3 px-4 max-w-md truncate" title={pr.title}>
-                  {pr.title}
+                <td className="py-2.5 px-3">
+                  <span className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate block" title={pr.repository}>
+                    {pr.repository.split('/')[1]}
+                  </span>
                 </td>
-                <td className="py-3 px-4">
-                  <div className="flex items-center gap-2">
+                <td className="py-2.5 px-3">
+                  <span className="text-sm text-gray-900 dark:text-gray-100 truncate block" title={pr.title}>
+                    {pr.title}
+                  </span>
+                </td>
+                <td className="py-2.5 px-3">
+                  <div className="flex items-center gap-2 min-w-0">
                     {pr.authorAvatar && (
                       <Image
                         src={pr.authorAvatar}
                         alt={pr.author}
-                        width={24}
-                        height={24}
-                        className="w-6 h-6 rounded-full object-cover"
+                        width={22}
+                        height={22}
+                        className="w-5.5 h-5.5 rounded-full object-cover shrink-0"
                       />
                     )}
-                    <span className="text-sm">{pr.author}</span>
+                    <span className="text-sm truncate">{pr.author}</span>
                   </div>
                 </td>
-                <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">
-                  {format(new Date(pr.mergedAt), 'MMM dd, yyyy')}
+                <td className="py-2.5 px-3 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                  {format(new Date(pr.mergedAt), 'MMM dd')}
                 </td>
-                <td className="py-3 px-4">
+                <td className="py-2.5 px-3 text-center">
                   {pr.detectedPoints !== null ? (
-                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300 font-mono">
                       {pr.detectedPoints}
                     </span>
                   ) : (
-                    <span className="text-gray-400 text-xs">-</span>
+                    <span className="text-gray-300 dark:text-gray-600 text-xs">—</span>
                   )}
                 </td>
-                <td className="py-3 px-4">
+                <td className="py-2.5 px-3 text-center">
                   <input
                     type="number"
                     min="0"
                     max="100"
+                    step="0.5"
                     value={pr.assignedPoints}
-                    onChange={(e) => handlePointsChange(pr.number, e.target.value)}
-                    onFocus={() => setEditingPR(pr.number)}
+                    onChange={(e) => handlePointsChange(pr.repository, pr.number, e.target.value)}
+                    onFocus={() => setEditingPR(`${pr.repository}#${pr.number}`)}
                     onBlur={() => setEditingPR(null)}
-                    className="w-20 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                    className="w-16 px-2 py-1 border border-gray-200 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white text-center tabular-nums font-mono text-sm"
                   />
                 </td>
-                <td className="py-3 px-4 font-medium">
-                  {formatCurrency(pr.assignedPoints * ratePerPoint, currency)}
+                <td className="py-2.5 px-3 text-right font-mono text-sm font-medium tabular-nums">
+                  <CurrencyAmount amount={pr.assignedPoints * ratePerPoint} currency={currency} />
                 </td>
-                <td className="py-3 px-4">
+                <td className="py-2.5 px-3 text-center">
                   <button
-                    onClick={() => onToggleExclude(pr.number)}
-                    className="text-gray-600 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400"
+                    onClick={() => onToggleExclude(pr.repository, pr.number)}
+                    className="transition-colors"
                   >
                     {pr.excluded ? (
-                      <Circle size={20} />
+                      <Circle size={18} className="text-gray-300 dark:text-gray-600 hover:text-gray-500" />
                     ) : (
-                      <CheckCircle2 size={20} className="text-green-600" />
+                      <CheckCircle2 size={18} className="text-emerald-500 hover:text-emerald-600" />
                     )}
                   </button>
                 </td>
@@ -233,7 +265,7 @@ export default function PRTable({
       <div className="md:hidden space-y-4">
         {sortedPRs.map((pr) => (
           <div
-            key={pr.number}
+            key={`${pr.repository}#${pr.number}`}
             className={`border border-gray-200 dark:border-gray-700 rounded-lg p-4 ${
               pr.excluded ? 'opacity-50' : ''
             }`}
@@ -249,7 +281,7 @@ export default function PRTable({
                 <ExternalLink size={14} />
               </a>
               <button
-                onClick={() => onToggleExclude(pr.number)}
+                onClick={() => onToggleExclude(pr.repository, pr.number)}
                 className="text-gray-600 hover:text-blue-600 dark:text-gray-400"
               >
                 {pr.excluded ? (
@@ -259,6 +291,7 @@ export default function PRTable({
                 )}
               </button>
             </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{pr.repository}</p>
             <p className="text-sm font-medium mb-2">{pr.title}</p>
             <div className="flex items-center gap-2 mb-2">
               {pr.authorAvatar && (
@@ -282,13 +315,14 @@ export default function PRTable({
                   type="number"
                   min="0"
                   max="100"
+                  step="0.5"
                   value={pr.assignedPoints}
-                  onChange={(e) => handlePointsChange(pr.number, e.target.value)}
-                  className="w-16 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                  onChange={(e) => handlePointsChange(pr.repository, pr.number, e.target.value)}
+                  className="w-16 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-center tabular-nums"
                 />
               </div>
               <div className="font-medium">
-                {formatCurrency(pr.assignedPoints * ratePerPoint, currency)}
+                <CurrencyAmount amount={pr.assignedPoints * ratePerPoint} currency={currency} />
               </div>
             </div>
           </div>

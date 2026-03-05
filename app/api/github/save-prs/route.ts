@@ -11,12 +11,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { prs, repository } = await request.json() as {
+    const { prs, repository } = (await request.json()) as {
       prs: PullRequest[];
-      repository: string;
+      repository?: string;
     };
 
-    if (!prs || !repository) {
+    if (!prs) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -25,12 +25,16 @@ export async function POST(request: NextRequest) {
 
     // Save or update each PR
     await Promise.all(
-      prs.map((pr) =>
-        prisma.pullRequestData.upsert({
+      prs.map((pr) => {
+        const repo = pr.repository ?? repository;
+        if (!repo) {
+          throw new Error('Repository missing for PR save');
+        }
+        return prisma.pullRequestData.upsert({
           where: {
             userId_repository_prNumber: {
               userId: session.user.id!,
-              repository,
+              repository: repo,
               prNumber: pr.number,
             },
           },
@@ -40,7 +44,7 @@ export async function POST(request: NextRequest) {
           },
           create: {
             userId: session.user.id!,
-            repository,
+            repository: repo,
             prNumber: pr.number,
             title: pr.title,
             author: pr.author,
@@ -51,8 +55,8 @@ export async function POST(request: NextRequest) {
             assignedPoints: pr.assignedPoints,
             excluded: pr.excluded,
           },
-        })
-      )
+        });
+      })
     );
 
     return NextResponse.json({ success: true });

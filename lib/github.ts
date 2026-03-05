@@ -50,25 +50,35 @@ export async function fetchMergedPRs({
   const octokit = new Octokit({ auth: token });
 
   try {
-    // Fetch merged PRs
-    const { data: pullRequests } = await octokit.pulls.list({
-      owner,
-      repo,
-      state: 'closed',
-      sort: 'updated',
-      direction: 'desc',
-      per_page: 100,
-    });
+    // Use search API to find all merged PRs in the date range
+    const query = `repo:${owner}/${repo} is:pr is:merged merged:${startDate}..${endDate}`;
+    const mergedPRs: { number: number; title: string; login: string; avatar: string; merged_at: string; html_url: string; body: string | null }[] = [];
 
-    // Filter by merge date and date range
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    let page = 1;
+    while (true) {
+      const { data } = await octokit.search.issuesAndPullRequests({
+        q: query,
+        per_page: 100,
+        page,
+        sort: 'updated',
+        order: 'desc',
+      });
 
-    const mergedPRs = pullRequests.filter((pr) => {
-      if (!pr.merged_at) return false;
-      const mergedDate = new Date(pr.merged_at);
-      return mergedDate >= start && mergedDate <= end;
-    });
+      for (const item of data.items) {
+        mergedPRs.push({
+          number: item.number,
+          title: item.title,
+          login: item.user?.login || 'unknown',
+          avatar: item.user?.avatar_url || '',
+          merged_at: (item.pull_request as { merged_at?: string })?.merged_at || '',
+          html_url: item.html_url,
+          body: item.body ?? null,
+        });
+      }
+
+      if (mergedPRs.length >= data.total_count || data.items.length < 100) break;
+      page++;
+    }
 
     // Fetch comments for each PR to detect points
     const prsWithPoints = await Promise.all(
@@ -76,7 +86,6 @@ export async function fetchMergedPRs({
         let detectedPoints: number | null = null;
 
         try {
-          // Fetch PR comments
           const { data: comments } = await octokit.issues.listComments({
             owner,
             repo,
@@ -86,7 +95,6 @@ export async function fetchMergedPRs({
 
           const commentBodies = comments.map((c) => c.body || '');
 
-          // Also check PR body
           if (pr.body) {
             commentBodies.unshift(pr.body);
           }
@@ -97,11 +105,12 @@ export async function fetchMergedPRs({
         }
 
         return {
+          repository,
           number: pr.number,
           title: pr.title,
-          author: pr.user?.login || 'unknown',
-          authorAvatar: pr.user?.avatar_url || '',
-          mergedAt: pr.merged_at || '',
+          author: pr.login,
+          authorAvatar: pr.avatar,
+          mergedAt: pr.merged_at,
           url: pr.html_url,
           detectedPoints,
           assignedPoints: detectedPoints || 0,
